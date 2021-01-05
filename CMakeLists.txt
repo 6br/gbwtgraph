@@ -147,6 +147,20 @@ add_dependencies(gfa2gbwt gbwtgraph)
 target_include_directories(gfa2gbwt PUBLIC ${gbwtgraph_INCLUDE})
 target_link_libraries(gfa2gbwt ${gbwtgraph_LIBS})
 
+# set up our target executable and specify its dependencies and includes
+add_executable(gbwt_query
+  ${CMAKE_SOURCE_DIR}/gbwt_query.cpp
+  ${CMAKE_SOURCE_DIR}/algorithms.cpp
+  ${CMAKE_SOURCE_DIR}/cached_gbwtgraph.cpp
+  ${CMAKE_SOURCE_DIR}/gbwtgraph.cpp
+  ${CMAKE_SOURCE_DIR}/gfa.cpp
+  ${CMAKE_SOURCE_DIR}/minimizer.cpp
+  ${CMAKE_SOURCE_DIR}/path_cover.cpp
+  ${CMAKE_SOURCE_DIR}/utils.cpp)
+add_dependencies(gbwt_query gbwtgraph)
+target_include_directories(gbwt_query PUBLIC ${gbwtgraph_INCLUDE})
+target_link_libraries(gbwt_query ${gbwtgraph_LIBS})
+
 set(gbwtgraph_tests_INCLUDE
   ${gbwtgraph_INCLUDE}
   ${googletest_INCLUDE})
