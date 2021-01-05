@@ -8,6 +8,7 @@
 #include <iostream>
 #include <tuple>
 #include <unordered_map>
+#include <vector>
 
 /*
   utils.h: Common utilities and definitions.
@@ -28,6 +29,17 @@ using edge_t = handlegraph::edge_t;
 
 using HandleGraph = handlegraph::HandleGraph;
 using SerializableHandleGraph = handlegraph::SerializableHandleGraph;
+
+//------------------------------------------------------------------------------
+
+// In-place view of the sequence: (start, length).
+// This is a quick replacement to std::string_view from C++17.
+typedef std::pair<const char*, size_t> view_type;
+
+//------------------------------------------------------------------------------
+
+// Some tools may not work with nodes longer than this.
+constexpr size_t MAX_NODE_LENGTH = 1024;
 
 //------------------------------------------------------------------------------
 
@@ -157,17 +169,47 @@ void reverse_complement_in_place(std::string& seq);
 /*
   A class that maps handles to strings. This can be used as a sequence source in
   GBWTGraph construction.
+
+  Nodes can be added with add_node(id, sequence) or translated from GFA segments
+  with translate_segment(name, sequence, max_bp). These two approaches must not
+  be mixed. In the latter case, the translation can be retrieved with
+  get_translation(name).
+
+  Nodes / segments with empty sequence are silently ignored.
 */
 class SequenceSource
 {
 public:
-  SequenceSource() {}
+  SequenceSource() : next_id(1) {}
 
-  void add_node(nid_t node_id, const std::string& sequence)
+  void swap(SequenceSource& another);
+
+  void add_node(nid_t node_id, const std::string& sequence);
+  void add_node(nid_t node_id, view_type sequence);
+
+  // Take a GFA segment (name, sequence). If the segment has not been translated
+  // yet, break it into nodes of at most max_length bp each and assign them the
+  // next unused node ids.
+  void translate_segment(const std::string& name, view_type sequence, size_t max_length);
+
+  bool uses_translation() const { return !(this->segment_translation.empty()); }
+
+  // Returns a semiopen range of node ids.
+  std::pair<nid_t, nid_t> get_translation(const std::string& segment_name) const
   {
-    this->sequences[this->get_handle(node_id, false)] = sequence;
+    auto iter = this->segment_translation.find(segment_name);
+    if(iter == this->segment_translation.end()) { return std::pair<nid_t, nid_t>(0, 0); }
+    return iter->second;
   }
 
+  bool has_node(nid_t node_id) const
+  {
+    return (this->nodes.find(this->get_handle(node_id, false)) != this->nodes.end());
+  }
+
+  size_t get_node_count() const { return this->nodes.size(); }
+
+  // This is compatible with GBWTGraph.
   handle_t get_handle(const nid_t& node_id, bool is_reverse = false) const
   {
     return handlegraph::number_bool_packing::pack(node_id, is_reverse);
@@ -175,23 +217,37 @@ public:
 
   size_t get_length(const handle_t& handle) const
   {
-    auto iter = this->sequences.find(handle);
-    if(iter == this->sequences.end()) { return 0; }
-    return iter->second.length();
+    auto iter = this->nodes.find(handle);
+    if(iter == this->nodes.end()) { return 0; }
+    return iter->second.second;
   }
 
   std::string get_sequence(const handle_t& handle) const
   {
-    auto iter = this->sequences.find(handle);
-    if(iter == this->sequences.end()) { return ""; }
-    return iter->second;
+    auto iter = this->nodes.find(handle);
+    if(iter == this->nodes.end()) { return ""; }
+    const char* ptr = this->sequences.data() + iter->second.first;
+    return std::string(ptr, ptr + iter->second.second);
   }
 
-  std::unordered_map<handle_t, std::string> sequences;
+  view_type get_sequence_view(const handle_t& handle) const
+  {
+    auto iter = this->nodes.find(handle);
+    if(iter == this->nodes.end()) { return view_type(nullptr, 0); }
+    const char* ptr = this->sequences.data() + iter->second.first;
+    return view_type(ptr, iter->second.second);
+  }
 
-private:
-  SequenceSource(const SequenceSource&) = delete;
-  SequenceSource& operator=(const SequenceSource&) = delete;
+  // Semiopen interval for the node sequence.
+  std::unordered_map<handle_t, std::pair<size_t, size_t>> nodes;
+  std::vector<char> sequences;
+
+  // If segment translation is enabled, this translates a segment identifier
+  // into a semiopen range of node identifiers.
+  std::unordered_map<std::string, std::pair<nid_t, nid_t>> segment_translation;
+  nid_t next_id;
+
+  const static std::string TRANSLATION_EXTENSION; // ".trans"
 };
 
 //------------------------------------------------------------------------------
